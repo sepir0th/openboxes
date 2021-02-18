@@ -9,7 +9,6 @@
  **/
 package org.pih.warehouse.data
 
-import org.pih.warehouse.core.IdentifierService
 import org.pih.warehouse.core.Organization
 import org.pih.warehouse.core.ProductPrice
 import org.pih.warehouse.core.UnitOfMeasure
@@ -18,11 +17,13 @@ import org.pih.warehouse.product.Product
 import org.pih.warehouse.product.ProductPackage
 import org.pih.warehouse.product.ProductSupplier
 import org.springframework.validation.BeanPropertyBindingResult
+import groovy.sql.Sql
 
 class ProductSupplierDataService {
 
     def uomService
     def identifierService
+    def dataSource
 
     Boolean validate(ImportDataCommand command) {
         log.info "Validate data " + command.filename
@@ -141,7 +142,39 @@ class ProductSupplierDataService {
     }
 
     def getOrCreateNew(Map params) {
-        def productSupplier = params.productSupplier ? ProductSupplier.get(params.productSupplier) : null
+        def productSupplier
+        def data
+        if (params.productSupplier) {
+            productSupplier = params.productSupplier ? ProductSupplier.get(params.productSupplier) : null
+        } else {
+            String query = """
+                select 
+                    id
+                FROM product_supplier
+                WHERE product_id = :productId
+                """
+            if (params.supplierId && params.supplierCode) {
+                query += " AND supplier_id = :supplierId AND REPLACE(REPLACE(REPLACE(supplier_code, ' ', ''), '-', ''), '.', '') = :supplierCode "
+            } else if (!params.supplierCode) {
+                if (params.manufacturerId && params.manufacturerCode) {
+                    query += " AND manufacturer_id = :manufacturerId AND REPLACE(REPLACE(REPLACE(manufacturer_code, ' ', ''), '-', ''), '.', '') = :manufacturerCode "
+                } else if (params.manufacturerId) {
+                    query += " AND manufacturer_id = :manufacturerId AND manufacturer_code is null "
+                } else if (params.manufacturerCode) {
+                    query += " AND REPLACE(REPLACE(REPLACE(manufacturer_code, ' ', ''), '-', ''), '.', '') = :manufacturerCode AND manufacturer_id is null "
+                }
+            }
+
+            Sql sql = new Sql(dataSource)
+            data = sql.rows(query, [
+                    'productId': params.product?.id,
+                    'supplierId': params.supplier?.id,
+                    'manufacturerId': params.manufacturer?.id,
+                    'manufacturerCode': params.manufacturerCode.replaceAll('[ .-]',''),
+                    'supplierCode': params.supplierCode.replaceAll('[ .-]',''),
+            ])
+            productSupplier = ProductSupplier.get(data.first().id)
+        }
         if (productSupplier) {
             return productSupplier
         }
