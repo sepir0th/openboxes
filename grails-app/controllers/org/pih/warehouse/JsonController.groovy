@@ -25,6 +25,7 @@ import org.pih.warehouse.core.Organization
 import org.pih.warehouse.core.Person
 import org.pih.warehouse.core.Tag
 import org.pih.warehouse.core.User
+import org.pih.warehouse.core.ValidationCode
 import org.pih.warehouse.inventory.InventoryItem
 import org.pih.warehouse.inventory.InventoryStatus
 import org.pih.warehouse.inventory.Transaction
@@ -38,6 +39,7 @@ import org.pih.warehouse.product.ProductCatalog
 import org.pih.warehouse.product.ProductGroup
 import org.pih.warehouse.product.ProductPackage
 import org.pih.warehouse.product.ProductSupplier
+import org.pih.warehouse.product.ProductSupplierPreference
 import org.pih.warehouse.product.ProductType
 import org.pih.warehouse.reporting.Indicator
 import org.pih.warehouse.reporting.TransactionFact
@@ -1738,18 +1740,24 @@ class JsonController {
     def productChanged = {
         Product product = Product.get(params.productId)
         Organization supplier = Organization.get(params.supplierId)
+        Organization destinationParty = Organization.get(params.destinationPartyId)
         List productSuppliers = []
         if (product && supplier) {
             productSuppliers = ProductSupplier.findAllByProductAndSupplier(product, supplier)
         }
-        productSuppliers = productSuppliers.collect {[
-            id: it.id,
-            code: it.code,
-            supplierCode: it.supplierCode,
-            text: it.code + ' ' + it.name,
-            manufacturerCode: it.manufacturerCode,
-            manufacturer: it.manufacturer?.id,
-        ]}
+        productSuppliers = productSuppliers.collect {
+            ProductSupplierPreference preference = it.productSupplierPreferences.find { it.destinationParty == destinationParty }
+            if ((preference && preference.preferenceType.validationCode != ValidationCode.HIDE) || !preference) {
+                [
+                        id: it.id,
+                        code: it.code,
+                        supplierCode: it.supplierCode,
+                        text: it.code + ' ' + it.name,
+                        manufacturerCode: it.manufacturerCode,
+                        manufacturer: it.manufacturer?.id,
+                ]
+            }
+        }
 
         render([productSupplierOptions: productSuppliers] as JSON)
     }
@@ -1757,6 +1765,8 @@ class JsonController {
     def productSupplierChanged = {
         ProductSupplier productSupplier = ProductSupplier.findById(params.productSupplierId)
         ProductPackage productPackage = productSupplier?.defaultProductPackage
+        Organization destinationParty = Organization.get(params.destinationPartyId)
+        ProductSupplierPreference preference = productSupplier.productSupplierPreferences.find { it.destinationParty == destinationParty }
         render([
                 unitPrice: productPackage?.productPrice?.price ? g.formatNumber(number: productPackage?.productPrice?.price) : null,
                 supplierCode: productSupplier?.supplierCode,
@@ -1765,6 +1775,7 @@ class JsonController {
                 minOrderQuantity: productSupplier?.minOrderQuantity,
                 quantityPerUom: productPackage?.quantity,
                 unitOfMeasure: productPackage?.uom,
+                validationCode: preference?.preferenceType?.validationCode,
         ] as JSON)
     }
 
